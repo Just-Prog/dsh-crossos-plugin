@@ -1,0 +1,50 @@
+{
+  "name": "dsh-crossos",
+  "version": "0.2.0",
+  "description": "dsh 插件 · 单机双系统会话与工作区路径迁移：按可配置的路径映射把另一系统写下的 cwd 改写到本机路径、把会话目录挪到本机 projectKey 下、修正 workspace.json 归属；只重压 header 帧，事件行逐字节保留，带备份与回滚。",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "dual-boot",
+    "windows",
+    "wsl",
+    "path-mapping",
+    "session"
+  ],
+  "main": "src/index.cjs",
+  "exports": {
+    ".": "./src/index.cjs",
+    "./engine": "./src/engine.cjs",
+    "./client": "./client/bundle.js",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "crossos": "./bin/crossos.cjs"
+  },
+  "engines": {
+    "node": ">=22.15",
+    "dsh": ">=0.2.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "files": [
+    "src",
+    "bin",
+    "client",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "check": "node --check src/index.cjs && node --check src/engine.cjs && node --check src/config.cjs && node --check src/api.cjs && node --check bin/crossos.cjs && node --check client/bundle.js",
+    "test": "node test/plugin.test.mjs && node test/api.test.mjs && node test/client.test.mjs"
+  }
+}

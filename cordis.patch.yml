@@ -1,0 +1,23 @@
+# dsh-crossos bundle patch：把插件行插入宿主组合。
+#
+# 安装：dsh plugin add "$PWD"（在仓库根目录执行；或 npm 包名）
+# 插件是 HOST-PLANE：在 DSH 启动早期扫描 sessions/ 与 storages/workspace.json，
+# 按路径映射迁移"另一系统"写下的会话，因此必须进宿主组合，不能进 agent preset。
+
+- insert:
+    - id: dsh-crossos
+      name: dsh-crossos
+      config:
+        # 路径映射：把另一系统写下的路径映射成本机真实路径。
+        # 写法一： "FROM=TO"；写法二： { windows: 'D:\...', linux: '/mnt/data/...' }
+        # 插件会自动展开成双向（D:\ ↔ /mnt/data），双系统共用同一份配置；
+        # 只有映射后目标在本机真实存在的会话才会被迁移。
+        #
+        # 把下面的示例改成你自己的挂载点（例如 /mnt/data 对应 Windows 的 D:）。
+        maps: []
+        # 冒号后是 YAML，路径含反斜杠时用单引号包住：
+        #   - 'D:\=/mnt/data'
+        # 也可以只写一条，插件会自动补反向。
+        auto: true
+        dryRun: false
+        adoptWorkspace: true
