@@ -1,6 +1,8 @@
-# dsh-crossos
+# dsh-crossos 双系统 DSH 会话同步插件
 
 > 单机双系统（Windows + Linux）下，把"另一套系统里写下的" DeepSeek Harness 会话与其工作区归属，迁移到本机真实路径上的 DSH 插件。路径映射与「启动时自动导入」开关直接在 **设置 → dsh-crossos** 里填。
+>
+> 目前仅测试 Windows => Linux，其他情况没测（包括Linux => Windows（可能要ext2fsd或者winbtrfs））
 
 同一个项目在两套系统里的绝对路径不同：
 
@@ -13,12 +15,12 @@ Linux:    /mnt/data/Projects/demo-app
 
 而 DSH 把**绝对路径**固化在了四个地方，所以直接拷贝 `sessions/` 只会得到"未分组"会话，甚至打不开：
 
-| 位置 | 内容 |
-| --- | --- |
-| 会话日志首行 header | `{"type":"session","version":4,"id":"…","cwd":"D:\\…"}`，zstd 第一帧 |
+| 位置                                 | 内容                                                                                          |
+| ------------------------------------ | --------------------------------------------------------------------------------------------- |
+| 会话日志首行 header                  | `{"type":"session","version":4,"id":"…","cwd":"D:\\…"}`，zstd 第一帧                          |
 | `sessions/<projectKey>/<sessionId>/` | `projectKey` 由 cwd 编码而来（`--D-Projects-demo-app--` vs `--mnt-data-Projects-demo-app--`） |
-| `storages/workspace.json` | 工作区记录的 `path` 与 `sessionIds` |
-| `storages/session_projcache/` | 会话投影缓存里的 `identity.cwd` |
+| `storages/workspace.json`            | 工作区记录的 `path` 与 `sessionIds`                                                           |
+| `storages/session_projcache/`        | 会话投影缓存里的 `identity.cwd`                                                               |
 
 本插件在 DSH 启动早期按**可配置的路径映射**把这四处统一到本机路径：改写 header、挪会话目录、修正 `workspace.json` 归属、修正 projcache。只重压 header 所在的第一帧，其余 zstd 帧与事件行逐字节保留；带备份、可 dry-run、失败整体回滚。
 
@@ -58,11 +60,11 @@ dsh plugin --profile web add dsh-crossos
 
 三处来源，后者覆盖前者：
 
-| 来源 | 用途 |
-| --- | --- |
-| 内置默认值 | 保守默认：不迁移、dry-run 关闭 |
+| 来源                     | 用途                           |
+| ------------------------ | ------------------------------ |
+| 内置默认值               | 保守默认：不迁移、dry-run 关闭 |
 | `$DSH_HOME/crossos.json` | **设置页写这里**，也可手工编辑 |
-| profile 的插件 `config` | 部署级覆盖（一般不用） |
+| profile 的插件 `config`  | 部署级覆盖（一般不用）         |
 
 ### 1. `$DSH_HOME/crossos.json`（设置页写的就是这个文件）
 
@@ -98,17 +100,17 @@ dsh plugin --profile web add dsh-crossos
 
 **映射自动展开为双向**（`D:\→/mnt/data` 与 `/mnt/data→D:\`），因此同一份配置在两个系统通用；方向由"映射后的目标路径在本机是否真实存在"决定。不需要为每个系统维护不同的配置，也**没有写死任何挂载点**。
 
-| 字段 | 默认 | 说明 |
-| --- | --- | --- |
-| `maps` | `[]` | 路径映射；`"FROM=TO"` 或 `{ from, to }` / `{ windows, linux }` |
-| `auto` | `true` | DSH 启动时自动迁移 |
-| `dryRun` | `false` | 只打印计划，不落盘 |
-| `adoptWorkspace` | `true` | 把迁移后的会话归入迁移后路径对应的工作区记录 |
-| `requireTargetExists` | `true` | 目标路径在本机不存在则跳过（也是方向判定依据） |
-| `skipCollision` | `true` | 目标目录已被另一个会话占用则跳过，不报错 |
-| `skipLive` | `true` | 日志正被进程打开则跳过 |
-| `keepOld` | `false` | 旧目录改名为 `<name>.migrated` 保留，而不是移入备份 |
-| `home` | 空 | 覆盖 `$DSH_HOME`（一般不需要） |
+| 字段                  | 默认    | 说明                                                           |
+| --------------------- | ------- | -------------------------------------------------------------- |
+| `maps`                | `[]`    | 路径映射；`"FROM=TO"` 或 `{ from, to }` / `{ windows, linux }` |
+| `auto`                | `true`  | DSH 启动时自动迁移                                             |
+| `dryRun`              | `false` | 只打印计划，不落盘                                             |
+| `adoptWorkspace`      | `true`  | 把迁移后的会话归入迁移后路径对应的工作区记录                   |
+| `requireTargetExists` | `true`  | 目标路径在本机不存在则跳过（也是方向判定依据）                 |
+| `skipCollision`       | `true`  | 目标目录已被另一个会话占用则跳过，不报错                       |
+| `skipLive`            | `true`  | 日志正被进程打开则跳过                                         |
+| `keepOld`             | `false` | 旧目录改名为 `<name>.migrated` 保留，而不是移入备份            |
+| `home`                | 空      | 覆盖 `$DSH_HOME`（一般不需要）                                 |
 
 ---
 
