@@ -385,6 +385,31 @@ await testAsync('auto 模式下启动 effect 会完成迁移', async () => {
   assert.ok(fs.existsSync(path.join(home, 'crossos', 'last-run.json')), '未写运行报告')
 })
 
+await testAsync('sources 里的会话在启动时被复制并迁移', async () => {
+  const home = freshHome('auto-sources-home')
+  const srcHome = path.join(TMP, 'auto-sources-src')
+  const srcCwd = 'E:\\Projects\\src-app'
+  const target = path.join(TMP, 'auto-sources-target', 'Projects', 'src-app')
+  fs.mkdirSync(target, { recursive: true })
+  const srcHeader = { type: 'session', version: 4, id: 'session-9999aaaa-0000-4000-8000-000000000009', createdAt: 1, cwd: srcCwd, isSeeded: false, delegationDepth: 0, agentPreset: 'standard' }
+  const srcDir = path.join(srcHome, 'sessions', engine.projectKey(srcCwd), engine.encodeSegment(srcHeader.id))
+  fs.mkdirSync(srcDir, { recursive: true })
+  fs.writeFileSync(path.join(srcDir, 'session.v4.jsonl.zstd'), Buffer.concat([zc(JSON.stringify(srcHeader) + '\n'), zc('{"type":"user","text":"src"}\n')]))
+
+  const { ctx, calls, effects } = fakeCtx()
+  plugin.apply(ctx, { home, maps: ['E:\\Projects\\src-app=' + target], sources: [srcHome] })
+  assert.equal(effects.filter((e) => String(e.label).includes('启动迁移')).length, 1)
+  runEffects(effects)
+  await new Promise((r) => setTimeout(r, 300))
+
+  const destDir = path.join(home, 'sessions', engine.projectKey(target), engine.encodeSegment(srcHeader.id))
+  const destFile = path.join(destDir, 'session.v4.jsonl.zstd')
+  assert.ok(fs.existsSync(destFile), '启动时没有复制并迁移：' + JSON.stringify(calls))
+  assert.equal(engine.readHeader(destFile).cwd, target, 'header cwd 应改写为本机路径')
+  const report = JSON.parse(fs.readFileSync(path.join(home, 'crossos', 'last-run.json'), 'utf8'))
+  assert.equal(report.imported.copied, 1, '运行报告应记录复制数量')
+})
+
 await testAsync('宿主自身被识别为"运行中的 DSH"时，启动迁移仍会执行', async () => {
   const home = freshHome('busy-home')
   const header = { type: 'session', version: 4, id: 'session-ffff7777-0000-4000-8000-000000000007', createdAt: 1, cwd: WIN_CWD, isSeeded: false, delegationDepth: 0, agentPreset: 'standard' }

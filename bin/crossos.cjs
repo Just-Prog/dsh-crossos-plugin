@@ -19,7 +19,8 @@
 const path = require('node:path')
 
 const engine = require('../src/engine.cjs')
-const { loadConfig, normalizeMaps, bidirectional } = require('../src/config.cjs')
+const { copyFromSources } = require('../src/import.cjs')
+const { loadConfig, normalizeMaps, normalizeSources, bidirectional } = require('../src/config.cjs')
 
 function usage() {
   return `dsh-crossos — 双系统会话/工作区路径迁移
@@ -28,18 +29,19 @@ function usage() {
   crossos status [--json]                     列出会话与迁移状态
   crossos maps                                打印映射表（含反向）
   crossos plan [--json]                       打印迁移计划，不改动任何文件
-  crossos apply [--force] [--keep-old]        执行迁移（默认 dry-run 关闭）
+  crossos apply [--force] [--keep-old]        先复制 sources 里的会话，再执行迁移
 
 通用参数：
   --home PATH        指定 DSH_HOME（默认 $DSH_HOME 或 ~/.dsh）
   --map FROM=TO      追加/覆盖一条路径映射（可重复）
+  --source PATH      追加一个源 DSH_HOME（可重复；默认读 crossos.json 的 sources）
   --json             以 JSON 输出
   --force            跳过"检测到运行中的 DSH"检查
 `
 }
 
 function parseArgs(argv) {
-  const args = { home: '', maps: [], json: false, force: false, keepOld: false, help: false, command: '' }
+  const args = { home: '', maps: [], sources: [], json: false, force: false, keepOld: false, help: false, command: '' }
   const rest = [...argv]
   while (rest.length) {
     const a = rest.shift()
@@ -51,6 +53,8 @@ function parseArgs(argv) {
     else if (a.startsWith('--home=')) args.home = a.slice(7)
     else if (a === '--map') args.maps.push(rest.shift() ?? '')
     else if (a.startsWith('--map=')) args.maps.push(a.slice(6))
+    else if (a === '--source') args.sources.push(rest.shift() ?? '')
+    else if (a.startsWith('--source=')) args.sources.push(a.slice(9))
     else if (!args.command && !a.startsWith('-')) args.command = a
     else throw new Error(`未知参数：${a}`)
   }
@@ -70,7 +74,11 @@ async function main() {
     return args.command ? 0 : args.help ? 0 : 1
   }
 
-  const override = compact({ home: args.home, maps: args.maps.length ? args.maps : undefined })
+  const override = compact({
+    home: args.home,
+    maps: args.maps.length ? args.maps : undefined,
+    sources: args.sources.length ? args.sources : undefined,
+  })
   const { config, home, maps, notes } = loadConfig(override)
   if (args.keepOld) config.keepOld = true
 
@@ -143,8 +151,34 @@ async function main() {
       info: (m) => process.stdout.write(`${m}\n`),
       warn: (m) => process.stderr.write(`警告：${m}\n`),
     }
+
+    // 与插件启动流程一致：先复制其它系统写下的会话，再统一 rebase。
+    // 复制本身也要落盘，所以 apply 前先做一次运行中检查（force 可跳过）。
+    if (args.command === 'apply' && !args.force) {
+      const running = engine.dshProcesses(home)
+      if (running.length) {
+        process.stderr.write(`检测到运行中的 DSH（PID ${running.map((r) => r.pid).join(', ')}），请先退出，或加 --force。\n`)
+        return 1
+      }
+    }
+    const sourceList = normalizeSources(config.sources)
+    let imported
+    if (sourceList.length) {
+      imported = copyFromSources({ home, sources: sourceList, maps, config, log, dryRun })
+      if (!args.json && !dryRun) {
+        process.stdout.write(`从 ${sourceList.length} 个源目录复制 ${imported.copied.filter((c) => c.copied).length} 个会话\n`)
+      }
+    }
+
     const summary = await pluginRun({ home, maps, config, log, dryRun, force: args.force })
     const report = require('../src/index.cjs').writeReport(home, summary)
+    if (imported) {
+      summary.imported = {
+        copied: imported.copied.filter((c) => c.copied).length,
+        skipped: imported.skipped.length,
+        warnings: imported.warnings,
+      }
+    }
     if (args.json) process.stdout.write(JSON.stringify({ ...summary, report }, null, 2) + '\n')
     else process.stdout.write(`\n完成：迁移 ${summary.done.length} 个会话${report ? `，报告 ${report}` : ''}\n`)
     return 0

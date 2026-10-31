@@ -1,6 +1,6 @@
 # dsh-crossos 双系统 DSH 会话同步插件
 
-> 单机双系统（Windows + Linux）下，把"另一套系统里写下的" DeepSeek Harness 会话与其工作区归属，迁移到本机真实路径上的 DSH 插件。路径映射与「启动时自动导入」开关直接在 **设置 → dsh-crossos** 里填。
+> 单机双系统（Windows + Linux）下，插件启动时先把另一套系统 `$DSH_HOME` 里的会话复制过来（可选 `sources`），再按可配置的路径映射改写成当前系统的真实路径并修正工作区归属。路径映射、源目录与「启动时自动导入」开关直接在 **设置 → dsh-crossos** 里填。
 >
 > 目前仅测试 Windows => Linux，其他情况没测（包括Linux => Windows（可能要ext2fsd或者winbtrfs））
 
@@ -22,7 +22,7 @@ Linux:    /mnt/data/Projects/demo-app
 | `storages/workspace.json`            | 工作区记录的 `path` 与 `sessionIds`                                                           |
 | `storages/session_projcache/`        | 会话投影缓存里的 `identity.cwd`                                                               |
 
-本插件在 DSH 启动早期按**可配置的路径映射**把这四处统一到本机路径：改写 header、挪会话目录、修正 `workspace.json` 归属、修正 projcache。只重压 header 所在的第一帧，其余 zstd 帧与事件行逐字节保留；带备份、可 dry-run、失败整体回滚。
+本插件在 DSH 启动早期先**补齐会话**（从 `sources` 只读复制本机没有的会话），再按**可配置的路径映射**把这四处统一到本机路径：改写 header、挪会话目录、修正 `workspace.json` 归属、修正 projcache。只重压 header 所在的第一帧，其余 zstd 帧与事件行逐字节保留；带备份、可 dry-run、失败整体回滚。
 
 ---
 
@@ -71,9 +71,13 @@ dsh plugin --profile web add dsh-crossos
 ```json
 {
   "maps": ["D:\\=/mnt/data"],
+  "sources": ["/mnt/windows/Users/you/.dsh"],
   "auto": true
 }
 ```
+
+`sources` 只读：插件从这些目录里取会话，不会写回。指向本机可访问的挂载路径即可，
+写 `$DSH_HOME` 或其 `sessions/` 子目录都行。
 
 也可以写成对象形式，双系统更直观：
 
@@ -103,6 +107,7 @@ dsh plugin --profile web add dsh-crossos
 | 字段                  | 默认    | 说明                                                           |
 | --------------------- | ------- | -------------------------------------------------------------- |
 | `maps`                | `[]`    | 路径映射；`"FROM=TO"` 或 `{ from, to }` / `{ windows, linux }` |
+| `sources`             | `[]`    | 其它系统的 `$DSH_HOME`（或 `sessions` 目录），启动时先把本机缺失的会话复制过来 |
 | `auto`                | `true`  | DSH 启动时自动迁移                                             |
 | `dryRun`              | `false` | 只打印计划，不落盘                                             |
 | `adoptWorkspace`      | `true`  | 把迁移后的会话归入迁移后路径对应的工作区记录                   |
@@ -129,11 +134,23 @@ export DSH_HOME=/mnt/data/dsh-home
 
 启动 DSH 时，插件把上次由另一系统写下的会话改成当前系统路径；工作区记录也同步改写。**每次切换系统启动都会发生一次这样的迁移**，属预期行为——备份目录会随之增长，可定期清理 `$DSH_HOME/backups/dsh-crossos/`。
 
-### B. 两个系统各自独立的 `$DSH_HOME`
+### B. 两个系统各自独立的 `$DSH_HOME`（复制也交给插件）
 
-- 把源系统的 `sessions/` 目录拷贝（或用任意文件同步工具同步）到另一系统对应的 `$DSH_HOME/sessions/`；
-- 接收方启动 DSH，插件自动把外来会话 rebase 到本机路径；
-- 工作区归属不必手工搬：插件在迁移时会顺带把会话归入目标路径已存在的工作区记录；若没有，则新建一条。
+两个系统各用各的 `$DSH_HOME`，插件启动时先"取"再"改"：
+
+```json
+{
+  "maps": ["D:\\=/mnt/data"],
+  "sources": ["/mnt/windows/Users/you/.dsh"]
+}
+```
+
+1. **取**：从 `sources` 里找出本机还没有的会话，复制进本机 `sessions/`（保持源 cwd 的目录名，`*.lock` 不复制，先写临时文件再 rename）；
+2. **改**：随后的 rebase 把 header 里的 cwd 改成当前系统的路径，并把日志挪到 `projectKey(新路径)` 下；
+3. **归组**：会话归入目标路径已存在的工作区记录；没有则新建一条。
+
+源目录只读，所以两套系统可以互相把对方当源（各自配置里写对方的 `$DSH_HOME`）。
+没有 `sources` 时也可以手工拷贝 `sessions/`，结果一样。
 
 ---
 
@@ -166,7 +183,9 @@ node bin/crossos.cjs plan          # 只打印迁移计划
 node bin/crossos.cjs apply         # 执行（检测到 DSH 在运行会拒绝，可加 --force）
 ```
 
-通用参数：`--home PATH`、`--map "FROM=TO"`（可重复）、`--json`、`--force`、`--keep-old`。
+通用参数：`--home PATH`、`--map "FROM=TO"`（可重复）、`--source PATH`（可重复，覆盖配置里的 `sources`）、`--json`、`--force`、`--keep-old`。
+
+`plan` / `apply` 都会先处理 `sources`（`plan` 只预览复制，不落盘）；检测到 DSH 在运行时会拒绝，可加 `--force`。
 
 输出示例（示意，路径与会话 ID 均为 mock）：
 
@@ -185,11 +204,12 @@ DSH_HOME: /home/you/.dsh
 ## 自测
 
 ```bash
-node test/plugin.test.mjs     # 17 项：配置解析、双向映射、dry-run、迁移、归组、projcache、备份、幂等、边界、API 注册、宿主自检
+node test/plugin.test.mjs     # 18 项：配置解析、双向映射、dry-run、迁移、归组、projcache、备份、幂等、边界、API 注册、宿主自检
 node test/api.test.mjs        # 6 项：配置校验、原子写入、GET/PUT、404/405、信任栅栏
 node test/client.test.mjs     # 6 项：bundle 注册协议、client 契约、settings.section 注册、文案字典
+node test/import.test.mjs     # 14 项：sourceHome 解析、复制落位、已存在/未命中映射/目标不存在跳过、dryRun、锁文件、多源去重、复制后迁移
 
-npm test                      # 以上三个都跑，共 29 项
+npm test                      # 以上四个都跑，共 44 项
 ```
 
 测试会在工作区临时目录里造一个 DSH_HOME（Windows 会话 + Linux 工作区 + projcache），跑完自动校验落位、事件行逐字节一致、workspace 合并去重、冲突跳过等。
@@ -203,6 +223,8 @@ npm test                      # 以上三个都跑，共 29 项
 - Windows 侧要求 Node ≥ 22.15（`zlib.zstdCompressSync`）。
 - 迁移是"改写 + 搬运"，不做内容合并；同一会话不会被两边同时改写（双系统不会同时运行）。
 - 设置页只负责写配置；配置在插件 `apply` 时读取，因此**保存后需重启 DSH**（HMR profile 会重载插件，但迁移动作只在启动时执行一次）。
+- `sources` 只做"补齐本机没有的会话"：同 id 已存在时不会覆盖（避免拿旧副本盖掉本机正在续写的会话）。
+- 复制按字节搬运，不合并；两个系统同时往同一会话写，仍以最后写入者为准（正常使用时不会同时运行）。
 
 ---
 

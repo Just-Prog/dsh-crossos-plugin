@@ -19,6 +19,12 @@ const path = require('node:path')
 const DEFAULTS = {
   /** 映射表；空数组表示不启用自动迁移 */
   maps: [],
+  /**
+   * 其它系统的 DSH_HOME（或直接给 sessions 目录），插件启动时先从这里
+   * 把本机还没有的会话复制过来。可读即可——例如 Linux 读取挂载的
+   * Windows 盘上的 %USERPROFILE%\.dsh。
+   */
+  sources: [],
   /** 启动时自动迁移（false 则只能用 bin 手动跑） */
   auto: true,
   /** true 时只打印计划，不落盘 */
@@ -101,6 +107,19 @@ function normalizeMaps(raw) {
   return out
 }
 
+/** 规范化源目录列表（字符串或字符串数组） */
+function normalizeSources(raw) {
+  if (raw === undefined || raw === null || raw === '') return []
+  const list = Array.isArray(raw) ? raw : [raw]
+  const out = []
+  for (const item of list) {
+    if (typeof item !== 'string') continue
+    const value = item.trim()
+    if (value) out.push(value)
+  }
+  return out
+}
+
 /** 展开成双向映射（A→B 与 B→A），最长前缀匹配保证不会互相干扰 */
 function bidirectional(maps) {
   const out = []
@@ -120,6 +139,7 @@ function loadConfig(configFromCordis) {
   // 插件 bundle patch 里的默认 config 会带 "maps: []"；空数组表示"未配置"，
   // 不能让它盖掉 crossos.json 里的映射表。
   if (Array.isArray(cordis.maps) && cordis.maps.length === 0) delete cordis.maps
+  if (Array.isArray(cordis.sources) && cordis.sources.length === 0) delete cordis.sources
   for (const key of Object.keys(cordis)) if (cordis[key] === undefined) delete cordis[key]
   const home = resolveHome({ ...DEFAULTS, ...cordis })
   const file = readFileConfig(home)
@@ -140,7 +160,7 @@ function loadConfig(configFromCordis) {
 }
 
 /** 可写字段（crossos.json 里由设置页维护的键） */
-const WRITABLE = ['maps', 'auto', 'dryRun', 'adoptWorkspace', 'requireTargetExists', 'skipCollision', 'skipLive', 'keepOld', 'home']
+const WRITABLE = ['maps', 'sources', 'auto', 'dryRun', 'adoptWorkspace', 'requireTargetExists', 'skipCollision', 'skipLive', 'keepOld', 'home']
 
 const BOOLEAN_KEYS = ['auto', 'dryRun', 'adoptWorkspace', 'requireTargetExists', 'skipCollision', 'skipLive', 'keepOld']
 
@@ -164,6 +184,14 @@ function sanitizeConfig(input) {
       } catch (error) {
         errors.push(error.message)
       }
+      continue
+    }
+    if (key === 'sources') {
+      if (typeof raw !== 'string' && !Array.isArray(raw)) {
+        errors.push('sources 必须是字符串或字符串数组')
+        continue
+      }
+      value.sources = normalizeSources(raw)
       continue
     }
     if (key === 'home') {
@@ -210,6 +238,7 @@ module.exports = {
   resolveHome,
   readFileConfig,
   normalizeMaps,
+  normalizeSources,
   sanitizeConfig,
   writeFileConfig,
   bidirectional,

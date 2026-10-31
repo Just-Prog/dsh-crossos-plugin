@@ -60,6 +60,12 @@ window.__ModuleLoader__.load({
       emptyMaps: '还没有映射。填一条「系统 A 的路径」与「系统 B 的路径」即可。',
       pathPlaceholder: '如 D:\\Projects\\demo 或 /home/me/demo',
       homeLabel: 'DSH_HOME',
+      sourcesTitle: '源目录（可选）',
+      sourcesHint: '其它系统写下的 DSH_HOME 或 sessions 目录，一行一个。启动时先把本机还没有的会话复制过来，再按上面的映射迁移。写本机可访问的挂载路径即可，源目录只读。',
+      sourcesPlaceholder: '如 /mnt/windows/Users/you/.dsh',
+      copiesTitle: '待复制会话',
+      copiesNone: '没有需要复制的会话',
+      copiesSome: '将从源目录复制 {n} 个会话',
     }
 
     const EN = {
@@ -91,6 +97,12 @@ window.__ModuleLoader__.load({
       emptyMaps: 'No mapping yet. Fill in one path per system.',
       pathPlaceholder: 'e.g. D:\\Projects\\demo or /home/me/demo',
       homeLabel: 'DSH_HOME',
+      sourcesTitle: 'Source directories (optional)',
+      sourcesHint: 'DSH_HOME or sessions directories written by the other system, one per line. Missing sessions are copied here first, then rebased with the mappings above. Point at a mount path this system can read; sources are never modified.',
+      sourcesPlaceholder: 'e.g. /mnt/windows/Users/you/.dsh',
+      copiesTitle: 'Sessions to copy',
+      copiesNone: 'Nothing to copy',
+      copiesSome: '{n} session(s) will be copied from the sources',
     }
 
     var API = '/dsh-crossos/api'
@@ -109,6 +121,8 @@ window.__ModuleLoader__.load({
       '.dshcx-map input { flex: 1 1 0; min-width: 0; }',
       '.dshcx input[type="text"] { background: var(--dsw-alias-bg-layer-2); border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; padding: 8px 10px; color: var(--dsw-alias-label-primary); font-size: var(--dsw-font-sm-14); outline: none; }',
       '.dshcx input[type="text"]:focus { border-color: var(--dsw-alias-brand-primary); }',
+      '.dshcx textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 66px; font-family: var(--dsw-font-family); background: var(--dsw-alias-bg-layer-2); border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; padding: 8px 10px; color: var(--dsw-alias-label-primary); font-size: var(--dsw-font-sm-14); outline: none; }',
+      '.dshcx textarea:focus { border-color: var(--dsw-alias-brand-primary); }',
       '.dshcx button { cursor: pointer; border-radius: 8px; border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); padding: 6px 12px; font-size: var(--dsw-font-xs-13); }',
       '.dshcx button:hover { background: var(--dsw-alias-interactive-bg-hover); }',
       '.dshcx button.primary { background: var(--dsw-alias-brand-primary); border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-label-primary-inverted); }',
@@ -167,7 +181,7 @@ window.__ModuleLoader__.load({
       var state = _s[0]
       var setState = _s[1]
 
-      var _d = useState({ maps: [], auto: true, dryRun: false })
+      var _d = useState({ maps: [], sources: [], auto: true, dryRun: false })
       var draft = _d[0]
       var setDraft = _d[1]
 
@@ -188,6 +202,7 @@ window.__ModuleLoader__.load({
         var fileCfg = data.fileConfig || {}
         setDraft({
           maps: Array.isArray(fileCfg.maps) ? fileCfg.maps.map(function (m) { return { from: m.from || '', to: m.to || '' } }) : [],
+          sources: Array.isArray(fileCfg.sources) ? fileCfg.sources.slice() : [],
           auto: fileCfg.auto !== false,
           dryRun: fileCfg.dryRun === true,
         })
@@ -227,7 +242,10 @@ window.__ModuleLoader__.load({
         var clean = draft.maps
           .map(function (m) { return { from: String(m.from || '').trim(), to: String(m.to || '').trim() } })
           .filter(function (m) { return m.from && m.to })
-        saveState({ maps: clean, auto: draft.auto, dryRun: draft.dryRun })
+        var sources = (draft.sources || [])
+          .map(function (s) { return String(s || '').trim() })
+          .filter(function (s) { return s.length > 0 })
+        saveState({ maps: clean, sources: sources, auto: draft.auto, dryRun: draft.dryRun })
           .then(function (data) {
             applyState(data)
             setMessage(t('saved'))
@@ -282,6 +300,17 @@ window.__ModuleLoader__.load({
           error ? h('div', { className: 'dshcx-error' }, t('error') + '：' + error) : null),
 
         h('div', { className: 'dshcx-card' },
+          h('div', { className: 'dshcx-card-title' }, t('sourcesTitle')),
+          h('p', { className: 'dshcx-hint' }, t('sourcesHint')),
+          h('textarea', {
+            rows: 3,
+            value: (draft.sources || []).join('\n'),
+            placeholder: t('sourcesPlaceholder'),
+            'aria-label': t('sourcesTitle'),
+            onChange: function (e) { setDraft(Object.assign({}, draft, { sources: e.target.value.split('\n') })) },
+          })),
+
+        h('div', { className: 'dshcx-card' },
           h('label', { className: 'dshcx-switch' },
             h('input', { type: 'checkbox', checked: draft.auto, onChange: function (e) { setDraft(Object.assign({}, draft, { auto: e.target.checked })) } }),
             h('span', { className: 'dshcx-switch-text' },
@@ -304,6 +333,20 @@ window.__ModuleLoader__.load({
                 h('span', {}, m.id),
                 h('code', {}, m.from + '  →  ' + m.to))
             })),
+
+        (function () {
+          var copies = data && data.copies
+          if (!copies || !copies.sources || !copies.sources.length) return null
+          return h('div', { className: 'dshcx-card' },
+            h('div', { className: 'dshcx-card-title' }, t('copiesTitle')),
+            h('p', { className: 'dshcx-hint' },
+              copies.count ? t('copiesSome').replace('{n}', String(copies.count)) : t('copiesNone')),
+            (copies.items || []).slice(0, 8).map(function (m, i) {
+              return h('div', { className: 'dshcx-meta', key: i },
+                h('span', {}, m.id),
+                h('code', {}, m.from + '  →  ' + m.to))
+            }))
+        })(),
 
         h('div', { className: 'dshcx-card' },
           h('div', { className: 'dshcx-card-title' }, t('lastRun')),

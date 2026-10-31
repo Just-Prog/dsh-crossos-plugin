@@ -25,6 +25,7 @@ const path = require('node:path')
 
 const engine = require('./engine.cjs')
 const api = require('./api.cjs')
+const { copyFromSources } = require('./import.cjs')
 const { loadConfig } = require('./config.cjs')
 
 const PLUGIN = 'dsh-crossos'
@@ -190,10 +191,30 @@ const plugin = {
     ctx.effect(() => {
       void (async () => {
         try {
+          // 先复制：把 sources 里"本机还没有"的会话搬进本机 sessions/，
+          // 保持源 cwd 的目录名；随后的 rebase 会统一改写 header 并落位。
+          const imported = copyFromSources({
+            home,
+            sources: cfg.sources,
+            maps,
+            config: cfg,
+            log,
+            dryRun: cfg.dryRun === true,
+          })
+          for (const warning of imported.warnings) log.warn(warning)
+          if (imported.copied.length) {
+            log.info(`从 ${imported.sources.length} 个源目录复制 ${imported.copied.filter((c) => c.copied).length} 个会话`)
+          }
+
           // force 是必需的：迁移就在宿主进程内发生，dshProcesses(home) 必然
           // 认出"运行中的 DSH"（也就是我们自己的宿主）。真正的并发保护由
           // skipLive 完成——日志若被任何进程打开，该会话会被跳过。
           const summary = await runMigration({ home, maps, config: cfg, log, dryRun: cfg.dryRun === true, force: true })
+          summary.imported = {
+            copied: imported.copied.filter((c) => c.copied).length,
+            skipped: imported.skipped.length,
+            warnings: imported.warnings,
+          }
           summary.report = writeReport(home, summary)
           if (summary.done.length) attachWorkspaces(ctx, summary.done, log)
         } catch (error) {

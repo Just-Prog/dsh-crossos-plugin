@@ -1,6 +1,6 @@
 {
   "name": "dsh-crossos",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "dsh 插件 · 单机双系统会话与工作区路径迁移：按可配置的路径映射把另一系统写下的 cwd 改写到本机路径、把会话目录挪到本机 projectKey 下、修正 workspace.json 归属；只重压 header 帧，事件行逐字节保留，带备份与回滚。",
   "license": "MIT",
   "keywords": [
@@ -41,10 +41,11 @@
     "bin",
     "client",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "check": "node --check src/index.cjs && node --check src/engine.cjs && node --check src/config.cjs && node --check src/api.cjs && node --check bin/crossos.cjs && node --check client/bundle.js",
-    "test": "node test/plugin.test.mjs && node test/api.test.mjs && node test/client.test.mjs"
+    "test": "node test/plugin.test.mjs && node test/api.test.mjs && node test/client.test.mjs && node test/import.test.mjs"
   }
 }

@@ -16,6 +16,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const engine = require('./engine.cjs')
+const { copyFromSources } = require('./import.cjs')
 const {
   DEFAULTS,
   BOOLEAN_KEYS,
@@ -23,6 +24,7 @@ const {
   sanitizeConfig,
   writeFileConfig,
   normalizeMaps,
+  normalizeSources,
   loadConfig,
 } = require('./config.cjs')
 
@@ -97,6 +99,24 @@ function scanPending(home, config, maps) {
   }
 }
 
+/** 只读扫描：按生效配置算出"启动时会从源目录复制哪些会话" */
+function scanCopies(home, config, maps) {
+  const sources = normalizeSources(config.sources)
+  if (!sources.length) return { sources: [], count: 0, items: [], skipped: 0, warnings: [] }
+  try {
+    const result = copyFromSources({ home, sources, maps, config, dryRun: true })
+    return {
+      sources,
+      count: result.copied.length,
+      items: result.copied.slice(0, 20).map((c) => ({ id: c.session.id, from: c.session.cwd, to: c.targetCwd })),
+      skipped: result.skipped.length,
+      warnings: result.warnings,
+    }
+  } catch (error) {
+    return { sources, error: String((error && error.message) || error), count: 0, items: [], skipped: 0, warnings: [] }
+  }
+}
+
 /** crossos.json 里存的（规范化后的）配置，用于表单回显 */
 function fileView(home) {
   const file = readFileConfig(home)
@@ -107,7 +127,7 @@ function fileView(home) {
   } catch (error) {
     notes.push(error.message)
   }
-  const view = { maps }
+  const view = { maps, sources: normalizeSources(file.data.sources) }
   for (const key of BOOLEAN_KEYS) {
     if (typeof file.data[key] === 'boolean') view[key] = file.data[key]
   }
@@ -122,6 +142,7 @@ function describe(home, cordisConfig) {
   const effective = {
     home: loaded.home,
     maps: loaded.mapsDeclared,
+    sources: normalizeSources(loaded.config.sources),
     auto: loaded.config.auto !== false,
     dryRun: loaded.config.dryRun === true,
     adoptWorkspace: loaded.config.adoptWorkspace !== false,
@@ -131,6 +152,7 @@ function describe(home, cordisConfig) {
     keepOld: loaded.config.keepOld === true,
   }
   const pending = scanPending(loaded.home, loaded.config, loaded.maps)
+  const copies = scanCopies(loaded.home, loaded.config, loaded.maps)
   return {
     ok: true,
     home: loaded.home,
@@ -139,6 +161,7 @@ function describe(home, cordisConfig) {
     fileConfig: view,
     effective,
     pending,
+    copies,
     lastRun: readLastRun(loaded.home),
     notes: [...notes, ...loaded.notes.filter((n) => !notes.includes(n))],
     defaults: { ...DEFAULTS },
@@ -216,4 +239,4 @@ function createHandler(ctx, cordisConfig) {
   }
 }
 
-module.exports = { API_PREFIX, createHandler, describe, scanPending, readLastRun, readBody }
+module.exports = { API_PREFIX, createHandler, describe, scanPending, scanCopies, readLastRun, readBody }
