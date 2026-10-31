@@ -131,7 +131,7 @@ window.__ModuleLoader__.load({
       '.dshcx-switch { display: flex; gap: 10px; align-items: flex-start; }',
       '.dshcx-switch input { margin-top: 3px; }',
       '.dshcx-switch-text { display: flex; flex-direction: column; gap: 4px; }',
-      '.dshcx-actions { display: flex; gap: 8px; align-items: center; }',
+      '.dshcx-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }',
       '.dshcx-note { font-size: var(--dsw-font-xs-13); color: var(--dsw-alias-state-success-primary); }',
       '.dshcx-error { font-size: var(--dsw-font-xs-13); color: var(--dsw-alias-state-error-primary); }',
       '.dshcx-meta { display: flex; flex-direction: column; gap: 6px; font-size: var(--dsw-font-xs-13); color: var(--dsw-alias-label-secondary); }',
@@ -253,6 +253,15 @@ window.__ModuleLoader__.load({
           .catch(function (e) { setError(String(e.message || e)) })
           .then(function () { setSaving(false) })
       }
+      // 每个可编辑区块下面都放一份保存键：避免用户改完源目录后找不到保存按钮。
+      function actionBar(withAddMap) {
+        return h('div', { className: 'dshcx-actions' },
+          withAddMap ? h('button', { onClick: addMap }, t('addMap')) : null,
+          h('button', { className: 'primary', onClick: save, disabled: saving }, saving ? t('saving') : t('save')),
+          h('button', { className: 'ghost', onClick: refresh }, t('reload')),
+          message ? h('span', { className: 'dshcx-note' }, message) : null,
+          error ? h('span', { className: 'dshcx-error' }, t('error') + '：' + error) : null)
+      }
 
       if (state.loading) return h('div', { className: 'dshcx' }, h('p', { className: 'dshcx-hint' }, '…'))
       if (state.error) {
@@ -292,12 +301,7 @@ window.__ModuleLoader__.load({
                 }),
                 h('button', { className: 'ghost', onClick: function () { removeMap(i) } }, t('remove')))
             }),
-          h('div', { className: 'dshcx-actions' },
-            h('button', { onClick: addMap }, t('addMap')),
-            h('button', { className: 'primary', onClick: save, disabled: saving }, saving ? t('saving') : t('save')),
-            h('button', { className: 'ghost', onClick: refresh }, t('reload'))),
-          message ? h('div', { className: 'dshcx-note' }, message) : null,
-          error ? h('div', { className: 'dshcx-error' }, t('error') + '：' + error) : null),
+          actionBar(true)),
 
         h('div', { className: 'dshcx-card' },
           h('div', { className: 'dshcx-card-title' }, t('sourcesTitle')),
@@ -308,7 +312,8 @@ window.__ModuleLoader__.load({
             placeholder: t('sourcesPlaceholder'),
             'aria-label': t('sourcesTitle'),
             onChange: function (e) { setDraft(Object.assign({}, draft, { sources: e.target.value.split('\n') })) },
-          })),
+          }),
+          actionBar(false)),
 
         h('div', { className: 'dshcx-card' },
           h('label', { className: 'dshcx-switch' },
@@ -358,6 +363,8 @@ window.__ModuleLoader__.load({
             h('span', {}, t('configFile') + '：', h('code', {}, (data && data.file) || '')),
             h('span', {}, t('homeLabel') + '：', h('code', {}, (data && data.home) || '')),
             h('span', {}, t('autoTitle') + '：', h('code', {}, (data && data.effective && data.effective.auto ? 'on' : 'off'))))),
+
+        actionBar(false),
       )
     }
 

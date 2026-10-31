@@ -1,0 +1,13 @@
+{
+  "maps": [
+    {
+      "from": "D:\\",
+      "to": "/data"
+    }
+  ],
+  "sources": [
+    "/mnt/win/.dsh"
+  ],
+  "auto": true,
+  "dryRun": false
+}

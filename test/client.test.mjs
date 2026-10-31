@@ -25,8 +25,11 @@ function test(name, fn) {
 }
 
 const fakeReact = {
-  createElement(type, props) {
-    return { type, props: props || {} }
+  createElement(type, props, ...children) {
+    const merged = Object.assign({}, props || {})
+    if (children.length === 1) merged.children = children[0]
+    else if (children.length > 1) merged.children = children
+    return { type, props: merged }
   },
   useState(init) {
     return [typeof init === 'function' ? init() : init, () => {}]
@@ -117,6 +120,41 @@ test('语言字典包含设置页必需文案', () => {
 test('API 基址默认指向 /dsh-crossos/api', () => {
   const mod = factory()
   assert.equal(mod.__internals.API, '/dsh-crossos/api')
+})
+
+function collectButtons(node, out = []) {
+  if (!node || typeof node !== 'object') return out
+  if (Array.isArray(node)) {
+    for (const item of node) collectButtons(item, out)
+    return out
+  }
+  if (node.type === 'button') out.push(node)
+  const children = node.props && node.props.children
+  if (Array.isArray(children)) for (const item of children) collectButtons(item, out)
+  else if (children) collectButtons(children, out)
+  return out
+}
+
+test('每个可编辑区块都带保存键', () => {
+  const original = fakeReact.useState
+  fakeReact.useState = (init) => {
+    if (init && init.loading === true) {
+      return [{
+        loading: false,
+        error: '',
+        data: { fileConfig: { maps: [], sources: [] }, pending: {}, copies: null, lastRun: null, file: '', home: '' },
+      }, () => {}]
+    }
+    return [typeof init === 'function' ? init() : init, () => {}]
+  }
+  try {
+    const mod = factory()
+    const node = mod.__internals.ConfigSection({ t: (key) => key })
+    const saves = collectButtons(node).filter((b) => b.props.children === 'save')
+    assert.equal(saves.length, 3, '期望映射卡、源目录卡与页面底部各有一个保存键')
+  } finally {
+    fakeReact.useState = original
+  }
 })
 
 console.log(`client.test: ${passed} 通过，${failures.length} 失败`)
